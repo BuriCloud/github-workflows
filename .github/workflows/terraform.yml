@@ -70,6 +70,11 @@ on:
         type: string
         default: ""
 
+      mask_aws_account_id:
+        description: "Mask or not the aws account id"
+        default: true
+        type: boolean
+
     secrets:
       AWS_ACCOUNT_ID:
         description: "Required if role_to_assume is set"
@@ -221,12 +226,12 @@ jobs:
 
       - name: Configure AWS credentials
         if: ${{ env.AWS_ACCOUNT_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
           ROLE_TO_ASSUME: ${{ env.GITHUB_ORGANISATION_NAME}}-${{ env.GITHUB_REPOSITORY_NAME}}-deployer-role
         with:
-          mask-aws-account-id: true # account id is sensitive but not secret. don't publicly expose it.
+          mask-aws-account-id: ${{ inputs.mask_aws_account_id }} # account id is sensitive but not secret. don't publicly expose it.
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.ROLE_TO_ASSUME }} # a role that can be assumed by GHA actions only
           role-duration-seconds: ${{ inputs.aws_session_duration }}
           role-session-name: "apply_${{ env.SESSION_NAME }}"
