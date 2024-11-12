@@ -1,0 +1,305 @@
+name: Terraform Review
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: "Where to run, usually ubuntu-latest or self-hosted"
+        default: "ubuntu-latest"
+        required: false
+        type: string
+
+      format_enabled:
+        description: "Enable format"
+        default: true
+        required: false
+        type: boolean
+
+      validate_enabled:
+        description: "Enable tf validate check"
+        default: true
+        required: false
+        type: boolean
+
+      tf_version:
+        description: "Terraform version to run"
+        default: "latest"
+        required: false
+        type: string
+
+      tflint_enabled:
+        description: "Enable tflint check"
+        default: true
+        required: false
+        type: boolean
+
+      tflint_version:
+        description: "TFLint version to run"
+        default: "latest"
+        required: false
+        type: string
+
+      tflint_config_repo:
+        description: "Public Repo Where TFLint Config can be found"
+        default: "burib/tflint-configs"
+        required: false
+        type: string
+
+      tflint_config_path:
+        description: "Path inside the Public Repo Where TFLint Config can be found"
+        default: "aws/.tflint.hcl"
+        required: false
+        type: string
+
+      tfsec_arguments:
+        description: "Additional arguments to pass to tfsec. Example: --config-file tfsec.yml"
+        required: false
+        type: string
+
+      tfsec_enabled:
+        description: "Enable tfsec check"
+        default: true
+        required: false
+        type: boolean
+
+      tfdocs_enabled:
+        description: "Enable tfdocs"
+        default: true
+        required: false
+        type: boolean
+
+      checkov_enabled:
+        description: "Enable checkov check"
+        default: true
+        required: false
+        type: boolean
+
+      checkov_check:
+        description: "Comma-separated list of Checkov tests to perform"
+        default: ""
+        required: false
+        type: string
+
+      checkov_skip_check:
+        description: "Comma-separated list of Checkov tests to skip"
+        default: ""
+        required: false
+        type: string
+
+      checkov_download_external_modules:
+        description: "Download external modules"
+        default: true
+        required: false
+        type: boolean
+
+      checkov_config_file:
+        description: "Path to Checkov config file. example: ./checkov.yml"
+        required: false
+        type: string
+
+      working_directory:
+        description: "Working directory containing terraform code to run"
+        required: false
+        default: "."
+        type: string
+
+      tf_fmt_check_only:
+        description: "Only perform terraform fmt check and no fixes"
+        required: false
+        default: false
+        type: boolean
+
+      tf_private_modules:
+        description: "Use github app auth to allow cloning of private modules"
+        default: false
+        type: boolean
+
+      tf_init_args:
+        description: "Additional arguments to pass to terraform init. Example: -reconfigure or -migrate-state"
+        required: false
+        type: string
+        default: ""
+
+    secrets:
+      GH_READ_APP_PRIVATE_KEY:
+        description: "Required if tf_private_modules is set"
+        required: false
+      GH_READ_APP_ID:
+        description: "Required if tf_private_modules is set"
+        required: false
+
+jobs:
+  format:
+    name: Format
+    runs-on: ${{ inputs.runs-on }}
+    if: ${{ inputs.format_enabled }}
+
+    steps:
+      - name: Format Terraform Code
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ inputs.tf_version }}
+
+      # Skipping this step will set the env.TF_FMT_CHECK empty string equal to option not provided.
+      - name: Set Terraform fmt check option
+        if: ${{ inputs.tf_fmt_check_only }}
+        run: echo "TF_FMT_CHECK=-check" >> $GITHUB_ENV
+
+      - name: Terraform fmt
+        id: fmt
+        working-directory: ${{ inputs.working_directory }}
+        run: terraform fmt -recursive ${{ env.TF_FMT_CHECK }}
+
+      - name: Add & Commit
+        uses: EndBug/add-and-commit@v9.1.0
+        if: ${{ ! inputs.tf_fmt_check_only }}
+        with:
+          author_name: "github-actions[bot] :robot:"
+          author_email: "github-actions[bot]@users.noreply.github.com"
+          message: "fix: terraform fmt"
+
+  validate:
+    name: Validate
+    runs-on: ${{ inputs.runs-on }}
+    if: ${{ inputs.validate_enabled }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ inputs.tf_version }}
+
+      - name: Terraform version
+        working-directory: ${{ inputs.working_directory }}
+        id: version
+        run: terraform --version
+        continue-on-error: false
+
+      - name: "set env variables"
+        run: |
+          IFS='/' read -ra GITHUB_REPOSITORY <<< ${{ github.repository }}
+          echo "GITHUB_ORGANISATION_NAME=${GITHUB_REPOSITORY[0]}" >> $GITHUB_ENV
+          echo "GITHUB_REPOSITORY_NAME=${GITHUB_REPOSITORY[1]}" >> $GITHUB_ENV
+
+      - name: Get github read token
+        if: ${{ inputs.tf_private_modules }}
+        uses: buricloud/.github-private/github/auth/netrc@v1
+        with:
+          app_id: ${{ secrets.GH_READ_APP_ID }}
+          app_private_key: ${{ secrets.GH_READ_APP_PRIVATE_KEY }}
+
+      - name: Terraform init
+        working-directory: ${{ inputs.working_directory }}
+        id: init
+        run: terraform init --backend=false ${{ inputs.tf_init_args }}
+        continue-on-error: false
+
+      - name: Terraform validate
+        working-directory: ${{ inputs.working_directory }}
+        id: validate
+        run: terraform validate
+        continue-on-error: false
+
+  tflint:
+    name: "TFLint"
+    runs-on: ${{ inputs.runs-on }}
+    if: ${{ inputs.tflint_enabled }}
+
+    steps:
+      - uses: actions/checkout@v3
+        name: Checkout source code
+
+      - uses: terraform-linters/setup-tflint@v3
+        name: Setup TFLint
+        with:
+          tflint_version: ${{ inputs.tflint_version }}
+      - uses: terraform-linters/tflint-load-config-action@v0
+        with:
+          source-repo: ${{ inputs.tflint_config_repo }}
+          source-path: ${{ inputs.tflint_config_path }}
+
+      - name: Show version
+        run: tflint --version
+
+      - name: Init TFLint
+        run: tflint --init
+
+      - name: Run TFLint
+        run: tflint -f compact
+
+  tfsec:
+    name: TFSec
+    runs-on: ${{ inputs.runs-on }}
+    if: ${{ inputs.tfsec_enabled }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: tfsec
+        uses: aquasecurity/tfsec-action@v1.0.2
+        id: tfsec
+        with:
+          format: "default,sarif"
+          additional_args: "--out tfsec_results ${{ inputs.tfsec_arguments }}"
+        continue-on-error: true
+      - name: "Upload tfsec SARIF file to github code scanning"
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: tfsec_results.sarif.json
+        continue-on-error: true
+      - name: "Check if TFSec Failed or not"
+        if: steps.tfsec.outcome != 'success'
+        run: echo "tfsec failed." && exit 1
+
+  checkov:
+    name: Checkov
+    runs-on: ${{ inputs.runs-on }}
+    if: ${{ inputs.checkov_enabled }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Run Checkov
+        id: checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          check: ${{ inputs.checkov_check }}
+          skip_check: ${{ inputs.checkov_skip_check }}
+          soft_fail: false
+          framework: terraform
+          download_external_modules: ${{ inputs.checkov_download_external_modules }}
+          config_file: ${{ inputs.checkov_config_file }}
+          log_level: WARNING
+
+  docs:
+    name: Terraform Docs
+    runs-on: ${{ inputs.runs-on }}
+    if: ${{ inputs.tfdocs_enabled }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Render terraform docs inside the README.md and push changes back to PR branch
+        uses: terraform-docs/gh-actions@v1.0.0
+        with:
+          git-commit-message: "docs: tfdocs automated formatting"
+          working-dir: ${{ inputs.working_directory }}
+          args: "--sort=false"
+          output-file: README.md
+          output-method: inject
+          git-push: "true"

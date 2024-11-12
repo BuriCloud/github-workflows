@@ -1,0 +1,59 @@
+name: "Terraform Variable update in .tfvars file"
+
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        description: "Where to run, usually ubuntu-latest or self-hosted"
+        default: "ubuntu-latest"
+        required: false
+        type: string
+
+      working_directory:
+        description: "Working directory containing terraform code to run"
+        required: false
+        default: ""
+        type: string
+
+      terraform_var_name:
+        description: "Name of the terraform variable to update"
+        required: true
+        type: string
+
+      terraform_var_value:
+        description: "Value to update the terraform variable to"
+        required: true
+        type: string
+
+      terraform_var_file_path:
+        description: "Path to the .tfvars file containing the terraform variable"
+        required: true
+        type: string
+
+jobs:
+  replace_terraform_variable_value:
+    name: "Replace ${{ inputs.terraform_var_name }}'s value with ${{ inputs.var_value }} in ${{ inputs.terraform_var_file_path }}"
+    runs-on: ${{ inputs.runs-on }}
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: "Replace"
+        working-directory: ${{ inputs.working_directory }}
+        id: replace
+        shell: bash
+        env:
+          var_name: ${{ inputs.terraform_var_name }}
+          var_value: ${{ inputs.terraform_var_value }}
+          var_file_path: ${{ inputs.terraform_var_file_path }}
+        run: |
+          sed -i -E "s/^($var_name[[:space:]]*=[[:space:]]*).*/\1\"$var_value\"/" "$var_file_path"
+          
+          git add "$var_file_path"
+          
+          git config user.name "github-actions[bot] :robot:"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat: update $var_name to $var_value at $(date -u +%Y-%m-%dT%H:%M:%S)"
+
+          git push

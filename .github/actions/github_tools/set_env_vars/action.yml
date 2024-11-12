@@ -1,0 +1,39 @@
+name: "Setup environment variables"
+description: "Set environment variables"
+
+outputs:
+  GITHUB_ORGANISATION_NAME:
+    description: "Github Organisation Name"
+    value: ${{ steps.set_env_vars.outputs.GITHUB_ORGANISATION_NAME }}
+  GITHUB_REPOSITORY_NAME:
+    description: "Github Repository Name"
+    value: ${{ steps.set_env_vars.outputs.GITHUB_REPOSITORY_NAME }}
+  SESSION_NAME:
+    description: "Session Name"
+    value: ${{ steps.set_env_vars.outputs.SESSION_NAME }}
+  GITHUB_ACTION_RUN_URL:
+    description: "Github Action Run URL"
+    value: ${{ steps.set_env_vars.outputs.GITHUB_ACTION_RUN_URL }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "set env variables"
+      shell: bash
+      id: set_env_vars
+      run: |
+        IFS='/' read -ra GITHUB_REPOSITORY <<< ${{ github.repository }}
+        
+        echo "GITHUB_ORGANISATION_NAME=${GITHUB_REPOSITORY[0]}" >> $GITHUB_ENV
+        echo "GITHUB_REPOSITORY_NAME=${GITHUB_REPOSITORY[1]}" >> $GITHUB_ENV
+        echo "SESSION_NAME=${GITHUB_REPOSITORY[0]}_${GITHUB_REPOSITORY[1]}_${{ github.run_id }}" >> $GITHUB_ENV
+        # AWS_SESSION_NAME must satisfy constrainst: [\w+=,.@-] and length less than or equal to 64
+        echo "GITHUB_ACTION_RUN_URL=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
+        
+        echo "GITHUB_ORGANISATION_NAME=$GITHUB_ORGANISATION_NAME" >> "$GITHUB_OUTPUT"
+        echo "GITHUB_REPOSITORY_NAME=$GITHUB_REPOSITORY_NAME" >> "$GITHUB_OUTPUT"
+        echo "SESSION_NAME=$SESSION_NAME" >> "$GITHUB_OUTPUT"
+        echo "GITHUB_ACTION_RUN_URL=$GITHUB_ACTION_RUN_URL" >> "$GITHUB_OUTPUT"
+    - name: "Set CURRENT_TIMESTAMP variable"
+      shell: bash
+      run: echo "CURRENT_TIMESTAMP=$(date +'%Y-%m-%d__%H-%M-%S')" >> $GITHUB_ENV
