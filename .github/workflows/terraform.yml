@@ -30,6 +30,11 @@ on:
         required: false
         type: string
 
+      tf_lock_id:
+        description: "If you need to unlock tf, provide the lock id."
+        required: false
+        type: string
+
       working_directory:
         description: "Working directory containing terraform code to run"
         required: false
@@ -166,6 +171,11 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         id: plan
         run: |
+          if [ "${{ inputs.tf_lock_id }}" != "" ]; then
+            # unlock if `tf_lock_id` is provided
+            terraform force-unlock -force ${{ inputs.tf_lock_id }}
+          fi
+          
           tf_args="-input=false ${{ inputs.tf_args }}"
           if [ "${{ inputs.tf_variables_path }}" != "" ]; then
             tf_args="$tf_args -var-file=${{ inputs.tf_variables_path }}"
