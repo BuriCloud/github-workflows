@@ -1,0 +1,192 @@
+name: "SAM PR Workflow"
+
+on:
+  workflow_call:
+    inputs:
+      aws_region:
+        required: false
+        type: string
+        default: "us-east-1"
+        description: "AWS region where you want to deploy to."
+      environment_prefix:
+        required: false
+        type: string
+        default: "pr"
+        description: "Prefix for the environment name (e.g., 'pr' results in 'pr-123' for PR #123)"
+      source_branch:
+        required: false
+        type: string
+        default: "main"
+        description: "Source branch to track for deployments"
+      paths:
+        required: false
+        type: string
+        default: "src/**"
+        description: "Paths to monitor for changes"
+    secrets:
+      ASSUME_ROLE_ARN:
+        required: true
+        description: "AWS Role ARN to assume for deployments"
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  determine_action:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    outputs:
+      deploy_action: ${{ steps.set_action.outputs.action }}
+      environment_name: ${{ steps.set_env.outputs.environment_name }}
+      should_run: ${{ steps.check_paths.outputs.should_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check if paths are affected
+        id: check_paths
+        run: |
+          if [[ "${{ inputs.paths }}" == "" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          git fetch origin ${{ inputs.source_branch }}
+          
+          CHANGED_FILES=$(git diff --name-only origin/${{ inputs.source_branch }}...HEAD)
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          MATCHES=$(echo "$CHANGED_FILES" | grep -E "${{ inputs.paths }}" || true)
+          if [[ ! -z "$MATCHES" ]]; then
+            echo "Matching files found"
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "No matching files found"
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set environment name
+        id: set_env
+        run: |
+          ENV_NAME="${{ inputs.environment_prefix }}-${{ github.event.number }}"
+          echo "Environment name: $ENV_NAME"
+          echo "environment_name=$ENV_NAME" >> $GITHUB_OUTPUT
+
+      - name: Determine deployment action
+        id: set_action
+        run: |
+          # Default to deploy
+          ACTION="deploy"
+          
+          # If PR is closed or merged, set action to delete
+          if [[ "${{ github.event.action }}" == "closed" || "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            ACTION="delete"
+          fi
+          
+          echo "Deployment action: $ACTION"
+          echo "action=$ACTION" >> $GITHUB_OUTPUT
+
+      - name: Update PR with deployment info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const action = '${{ steps.set_action.outputs.action }}';
+            const envName = '${{ steps.set_env.outputs.environment_name }}';
+            const shouldRun = '${{ steps.check_paths.outputs.should_run }}' === 'true';
+            
+            let body = `## 🚀 Deployment Status\n\n`;
+            
+            if (!shouldRun) {
+              body += `🔄 No deployment needed - no relevant files changed\n`;
+            } else if (action === 'deploy') {
+              body += `📦 Deploying to environment: \`${envName}\`\n`;
+            } else {
+              body += `🗑️ Cleaning up environment: \`${envName}\`\n`;
+            }
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
+
+  deploy:
+    needs: determine_action
+    if: needs.determine_action.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ needs.determine_action.outputs.environment_name }}
+    steps:
+      - name: "Checkout repository"
+        uses: actions/checkout@v4
+
+      - name: "Setup Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: "Setup AWS SAM CLI"
+        uses: aws-actions/setup-sam@v2
+
+      - name: "Configure AWS credentials"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.ASSUME_ROLE_ARN }}
+          aws-region: ${{ inputs.aws_region }}
+          role-duration-seconds: 3600 # 1h
+
+      - name: "Build and Deploy"
+        env:
+          DEPLOY_ACTION: ${{ needs.determine_action.outputs.deploy_action }}
+          ENVIRONMENT: ${{ needs.determine_action.outputs.environment_name }}
+        run: |
+          if [[ "$DEPLOY_ACTION" == "deploy" ]]; then
+            echo "Building SAM application..."
+            sam build --use-container
+            
+            echo "Deploying SAM application..."
+            sam deploy \
+              --no-confirm-changeset \
+              --no-fail-on-empty-changeset \
+              --stack-name "$ENVIRONMENT-stack" \
+              --parameter-overrides \
+                Environment=$ENVIRONMENT \
+              --capabilities CAPABILITY_IAM
+          else
+            echo "Deleting SAM application..."
+            sam delete \
+              --stack-name "$ENVIRONMENT-stack" \
+              --no-prompts
+          fi
+
+      - name: "Update PR with completion status"
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const action = '${{ needs.determine_action.outputs.deploy_action }}';
+            const envName = '${{ needs.determine_action.outputs.environment_name }}';
+            const status = '${{ job.status }}';
+            
+            let body = `## 🎯 Deployment Complete\n\n`;
+            
+            if (status === 'success') {
+              if (action === 'deploy') {
+                body += `✅ Successfully deployed to \`${envName}\`\n`;
+              } else {
+                body += `✅ Successfully cleaned up \`${envName}\`\n`;
+              }
+            } else {
+              body += `❌ Deployment failed! Check the [workflow logs](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.\n`;
+            }
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: body
+            });
