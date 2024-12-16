@@ -71,7 +71,11 @@ jobs:
       - name: Set environment name
         id: set_env
         run: |
-          ENV_NAME="${{ inputs.environment_prefix }}-${{ github.event.number }}"
+          ENV_NAME="${{ inputs.environment_prefix }}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            ENV_NAME="${{ inputs.environment_prefix }}-${{ github.event.number }}"
+          fi
+          
           echo "Environment name: $ENV_NAME"
           echo "environment_name=$ENV_NAME" >> $GITHUB_OUTPUT
 
