@@ -90,6 +90,7 @@ jobs:
           echo "action=$ACTION" >> $GITHUB_OUTPUT
 
       - name: Update PR with deployment info
+        if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
