@@ -40,33 +40,9 @@ jobs:
     outputs:
       deploy_action: ${{ steps.set_action.outputs.action }}
       environment_name: ${{ steps.set_env.outputs.environment_name }}
-      should_run: ${{ steps.check_paths.outputs.should_run }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Check if paths are affected
-        id: check_paths
-        run: |
-          if [[ "${{ inputs.paths }}" == "" ]]; then
-            echo "should_run=true" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          git fetch origin ${{ inputs.source_branch }}
-          
-          CHANGED_FILES=$(git diff --name-only origin/${{ inputs.source_branch }}...HEAD)
-          echo "Changed files:"
-          echo "$CHANGED_FILES"
-          
-          MATCHES=$(echo "$CHANGED_FILES" | grep -E "${{ inputs.paths }}" || true)
-          if [[ ! -z "$MATCHES" ]]; then
-            echo "Matching files found"
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          else
-            echo "No matching files found"
-            echo "should_run=false" >> $GITHUB_OUTPUT
-          fi
 
       - name: Set environment name
         id: set_env
@@ -100,13 +76,10 @@ jobs:
           script: |
             const action = '${{ steps.set_action.outputs.action }}';
             const envName = '${{ steps.set_env.outputs.environment_name }}';
-            const shouldRun = '${{ steps.check_paths.outputs.should_run }}' === 'true';
             
             let body = `## 🚀 Deployment Status\n\n`;
             
-            if (!shouldRun) {
-              body += `🔄 No deployment needed - no relevant files changed\n`;
-            } else if (action === 'deploy') {
+            if (action === 'deploy') {
               body += `📦 Deploying to environment: \`${envName}\`\n`;
             } else {
               body += `🗑️ Cleaning up environment: \`${envName}\`\n`;
@@ -121,7 +94,6 @@ jobs:
 
   deploy:
     needs: determine_action
-    if: needs.determine_action.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     environment:
       name: ${{ needs.determine_action.outputs.environment_name }}
