@@ -24,7 +24,7 @@ on:
         default: "src/**"
         description: "Paths to monitor for changes"
     secrets:
-      ASSUME_ROLE_ARN:
+      AWS_ASSUME_ROLE_ARN:
         required: true
         description: "AWS Role ARN to assume for deployments"
 
@@ -135,7 +135,7 @@ jobs:
       - name: "Configure AWS credentials"
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.ASSUME_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_ASSUME_ROLE_ARN }}
           aws-region: ${{ inputs.aws_region }}
           role-duration-seconds: 3600 # 1h
 
