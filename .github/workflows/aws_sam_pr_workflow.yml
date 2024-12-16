@@ -36,7 +36,7 @@ permissions:
 jobs:
   determine_action:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    # if: github.event_name == 'pull_request'
     outputs:
       deploy_action: ${{ steps.set_action.outputs.action }}
       environment_name: ${{ steps.set_env.outputs.environment_name }}
