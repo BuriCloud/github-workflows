@@ -122,6 +122,9 @@ jobs:
           ENVIRONMENT: ${{ needs.determine_action.outputs.environment_name }}
         working-directory: ${{ inputs.working_directory }}
         run: |
+          ls -la
+          ls -larh
+          
           if [[ "$DEPLOY_ACTION" == "deploy" ]]; then
             echo "Building SAM application..."
             sam build --use-container
