@@ -121,20 +121,19 @@ jobs:
           DEPLOY_ACTION: ${{ needs.determine_action.outputs.deploy_action }}
           ENVIRONMENT: ${{ needs.determine_action.outputs.environment_name }}
         working-directory: ${{ inputs.working_directory }}
-        run: |
-          ls -la
-          ls -larh
-          
+        run: |          
           if [[ "$DEPLOY_ACTION" == "deploy" ]]; then
             echo "Building SAM application..."
             sam build --use-container
+
+            parameters=$(jq environment "$ENVIRONMENT" '. | .Environment = $environment | to_entries | map("\(.key)=\(.value|tostring)") | join(" ")' parameters_$ENVIRONMENT.json)
             
             echo "Deploying SAM application..."
             sam deploy \
               --no-confirm-changeset \
               --no-fail-on-empty-changeset \
               --stack-name "$ENVIRONMENT-stack" \
-              --parameter-overrides "parameters_$ENVIRONMENT.json" \
+              --parameter-overrides "$parameters" \
               --capabilities CAPABILITY_IAM
           else
             echo "Deleting SAM application..."
