@@ -18,11 +18,11 @@ on:
         type: string
         default: "main"
         description: "Source branch to track for deployments"
-      paths:
+      working_directory:
         required: false
         type: string
-        default: "src/**"
-        description: "Paths to monitor for changes"
+        default: ""
+        description: "Location where your sam template and src files lives."
     secrets:
       AWS_ASSUME_ROLE_ARN:
         required: true
@@ -120,7 +120,7 @@ jobs:
         env:
           DEPLOY_ACTION: ${{ needs.determine_action.outputs.deploy_action }}
           ENVIRONMENT: ${{ needs.determine_action.outputs.environment_name }}
-        working-directory: ${{ inputs.paths }}
+        working-directory: ${{ inputs.working_directory }}
         run: |
           if [[ "$DEPLOY_ACTION" == "deploy" ]]; then
             echo "Building SAM application..."
