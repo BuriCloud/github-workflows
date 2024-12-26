@@ -129,6 +129,8 @@ jobs:
             parameters=$(jq environment "$ENVIRONMENT" '. | .Environment = $environment | to_entries | map("\(.key)=\(.value|tostring)") | join(" ")' parameters_$ENVIRONMENT.json)
             
             echo "Deploying SAM application..."
+            echo $parameters
+            echo -e "\n----\n"
             sam deploy \
               --no-confirm-changeset \
               --no-fail-on-empty-changeset \
