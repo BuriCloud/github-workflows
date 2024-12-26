@@ -128,15 +128,13 @@ jobs:
           if [[ "$DEPLOY_ACTION" == "deploy" ]]; then
             echo "Building SAM application..."
             sam build --use-container
-
-            parameters="parameters_${{ $ENVIRONMENT }}.json"
             
             echo "Deploying SAM application..."
             sam deploy \
               --no-confirm-changeset \
               --no-fail-on-empty-changeset \
               --stack-name "$ENVIRONMENT-stack" \
-              --parameter-overrides "$parameters" \
+              --parameter-overrides "parameters_${{ $ENVIRONMENT }}.json" \
               --capabilities CAPABILITY_IAM
           else
             echo "Deleting SAM application..."
