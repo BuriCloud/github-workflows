@@ -123,14 +123,13 @@ jobs:
         working-directory: ${{ inputs.working_directory }}
         run: |          
           if [[ "$DEPLOY_ACTION" == "deploy" ]]; then
+            echo "Preparing parameters: parameters_$ENVIRONMENT.json"
+            parameters=$(jq --arg environment "$ENVIRONMENT" '. | .Environment = $environment | to_entries | map("\(.key)=\(.value|tostring)") | join(" ")' parameters_$ENVIRONMENT.json)
+            echo $parameters
+
             echo "Building SAM application..."
             sam build --use-container
-
-            parameters=$(jq environment "$ENVIRONMENT" '. | .Environment = $environment | to_entries | map("\(.key)=\(.value|tostring)") | join(" ")' parameters_$ENVIRONMENT.json)
-            
             echo "Deploying SAM application..."
-            echo $parameters
-            echo -e "\n----\n"
             sam deploy \
               --no-confirm-changeset \
               --no-fail-on-empty-changeset \
