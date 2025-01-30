@@ -195,12 +195,12 @@ jobs:
           terraform apply ./terraform_plans/terraform_plan_${{ inputs.environment }}_${{ inputs.aws_region }}.tfplan
         continue-on-error: false
 
-      - name: "Upload ${{ inputs.working_directory }} to github artifacts"
-        uses: actions/upload-artifact@v3
-        if: false
-        with:
-          name: terraform_${{ inputs.environment }}_${{ inputs.aws_region }}
-          path: ${{ inputs.working_directory }}
+      # - name: "Upload ${{ inputs.working_directory }} to github artifacts"
+      #   uses: actions/upload-artifact@v3
+      #   if: false
+      #   with:
+      #     name: terraform_${{ inputs.environment }}_${{ inputs.aws_region }}
+      #     path: ${{ inputs.working_directory }}
 
   #       - name: "Echo terraform plan to github step summary"
   #         if: ${{ github.ref == 'refs/heads/main' }}
