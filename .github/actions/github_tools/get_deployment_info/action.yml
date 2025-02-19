@@ -19,19 +19,21 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: "Set env variables"
-      id: set_env_vars
-      shell: bash
-      uses: buricloud/github-workflows/.github/actions/github_tools/set_env_vars@main
-
     - name: "Set deployment variables"
       id: set_deployment_info
       shell: bash
       run: |
+        IFS='/' read -ra GITHUB_REPOSITORY <<< ${{ github.repository }}
+        
+        echo "GITHUB_ORGANISATION_NAME=${GITHUB_REPOSITORY[0]}" >> $GITHUB_ENV
+        echo "GITHUB_REPOSITORY_NAME=${GITHUB_REPOSITORY[1]}" >> $GITHUB_ENV
+        echo "SESSION_NAME=${GITHUB_REPOSITORY[0]}_${GITHUB_REPOSITORY[1]}_${{ github.run_id }}" >> $GITHUB_ENV
+        echo "GITHUB_ACTION_RUN_URL=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
+        
         # Initialize variables
         STAGE=""
         ENVIRONMENT=""
-        DEPLOYER_ROLE_NAME="${{ env.GITHUB_ORGANISATION_NAME }}-${{ env.GITHUB_REPOSITORY_NAME }}-deployer-role"
+        DEPLOYER_ROLE_NAME="${{ GITHUB_ORGANISATION_NAME }}-${{ GITHUB_REPOSITORY_NAME }}-deployer-role"
 
         # Handle workflow_dispatch (manual triggers)
         if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
