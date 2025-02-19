@@ -1,0 +1,65 @@
+name: "Deployment Info"
+description: "Get deployment info for the current workflow run. This action sets the stage, environment, and AWS role name for the deployment. PRs are deployed to a unique environment, while pushes to main are deployed to the dev environment."
+inputs:
+  TARGET_STAGE:
+    description: "target stage"
+    required: false
+
+outputs:
+  DEPLOYER_ROLE_NAME:
+    description: "The name of the deployer role"
+    value: ${{ steps.set_deployment_info.outputs.DEPLOYER_ROLE_NAME }}
+  STAGE:
+    description: "The stage to deploy to"
+    value: ${{ steps.set_deployment_info.outputs.STAGE }}
+  ENVIRONMENT:
+    description: "The environment to deploy to"
+    value: ${{ steps.set_deployment_info.outputs.ENVIRONMENT }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: "Set env variables"
+      id: set_env_vars
+      uses: buricloud/github-workflows/.github/actions/github_tools/set_env_vars@main
+
+    - name: "Set deployment variables"
+      id: set_deployment_info
+      run: |
+        # Initialize variables
+        STAGE=""
+        ENVIRONMENT=""
+        DEPLOYER_ROLE_NAME="${{ env.GITHUB_ORGANISATION_NAME }}-${{ env.GITHUB_REPOSITORY_NAME }}-deployer-role"
+
+        # Handle workflow_dispatch (manual triggers)
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          STAGE="${{ inputs.TARGET_STAGE }}"
+          ENVIRONMENT="${{ inputs.TARGET_STAGE }}"
+
+        # Handle pull_request events
+        elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          if [[ "${{ github.event.action }}" == "closed" && "${{ github.event.pull_request.merged }}" == "true" ]]; then
+            # PR was merged - deploy to dev stage
+            STAGE="dev"
+            ENVIRONMENT="dev"
+          else
+            # PR is open/sync or closed without merge - use PR environment
+            STAGE="pr-${{ github.event.number }}"
+            ENVIRONMENT="dev"
+          fi
+
+        # Handle push to main
+        elif [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+          STAGE="prod"
+          ENVIRONMENT="prod"
+        fi
+        
+        # if PR is opened                 stage: pr-${{ github.event.number }}  environment: dev
+        # if PR is merged to main branch  stage: dev                            environment: dev
+        # if PR is closed without merge   stage: pr-${{ github.event.number }}  environment: dev
+        # if push is made to main branch  stage: prod                           environment: prod 
+
+        # Output the variables
+        echo "STAGE=$STAGE" >> $GITHUB_OUTPUT
+        echo "ENVIRONMENT=$ENVIRONMENT" >> $GITHUB_OUTPUT
+        echo "DEPLOYER_ROLE_NAME=$DEPLOYER_ROLE_NAME" >> $GITHUB_OUTPUT
