@@ -16,19 +16,17 @@ outputs:
     description: "The environment to deploy to"
     value: ${{ steps.set_deployment_info.outputs.ENVIRONMENT }}
 
-defaults:
-  run:
-    shell: bash
-
 runs:
   using: "composite"
   steps:
     - name: "Set env variables"
       id: set_env_vars
+      shell: bash
       uses: buricloud/github-workflows/.github/actions/github_tools/set_env_vars@main
 
     - name: "Set deployment variables"
       id: set_deployment_info
+      shell: bash
       run: |
         # Initialize variables
         STAGE=""
