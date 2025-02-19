@@ -16,6 +16,10 @@ outputs:
     description: "The environment to deploy to"
     value: ${{ steps.set_deployment_info.outputs.ENVIRONMENT }}
 
+defaults:
+  run:
+    shell: bash
+
 runs:
   using: "composite"
   steps:
