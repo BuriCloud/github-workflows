@@ -25,10 +25,8 @@ runs:
       run: |
         IFS='/' read -ra GITHUB_REPOSITORY <<< ${{ github.repository }}
         
-        echo "GITHUB_ORGANISATION_NAME=${GITHUB_REPOSITORY[0]}" >> $GITHUB_ENV
-        echo "GITHUB_REPOSITORY_NAME=${GITHUB_REPOSITORY[1]}" >> $GITHUB_ENV
-        echo "SESSION_NAME=${GITHUB_REPOSITORY[0]}_${GITHUB_REPOSITORY[1]}_${{ github.run_id }}" >> $GITHUB_ENV
-        echo "GITHUB_ACTION_RUN_URL=https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> $GITHUB_ENV
+        GITHUB_ORGANISATION_NAME="${GITHUB_REPOSITORY[0]}"
+        GITHUB_REPOSITORY_NAME="${GITHUB_REPOSITORY[1]}"
         
         # Initialize variables
         STAGE=""
