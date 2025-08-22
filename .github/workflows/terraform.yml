@@ -1,85 +1,76 @@
-name: Terraform Run
+name: Terraform/OpenTofu Run
 
 on:
   workflow_call:
     inputs:
+      iac_tool:
+        description: "The IaC tool to use, either 'terraform' or 'opentofu'"
+        default: "terraform"
+        required: false
+        type: string
       runs-on:
         description: "Where to run, usually ubuntu-latest or self-hosted"
         default: "ubuntu-latest"
         required: false
         type: string
-
       tf_version:
-        description: "Terraform version to run"
+        description: "The version of Terraform or OpenTofu to run"
         default: "latest"
         required: false
         type: string
-
       tf_args:
-        description: "Terraform extra arguments to pass for plan"
+        description: "Extra arguments to pass for plan"
         required: false
         type: string
-
       tf_backend_config_path:
-        description: "Path to the Terraform backend config file"
+        description: "Path to the backend config file"
         required: false
         type: string
-
       tf_variables_path:
-        description: "Path to the Terraform variables file"
+        description: "Path to the variables file"
         required: false
         type: string
-
       tf_lock_id:
-        description: "If you need to unlock tf, provide the lock id."
+        description: "If you need to unlock the state, provide the lock id"
         required: false
         type: string
-
       working_directory:
-        description: "Working directory containing terraform code to run"
+        description: "Working directory containing IaC code to run"
         required: false
         default: ""
         type: string
-
       aws_region:
         description: "AWS Region to deploy to"
         default: "us-east-1"
         required: false
         type: string
-
       aws_session_duration:
-        description: "For how long the aws session is valid."
+        description: "For how long the AWS session is valid"
         required: false
         default: "1200" # 20 minutes
         type: string
-
       role_to_assume:
         description: "What AWS role to assume"
         required: false
         default: ""
         type: string
-
       environment: # dev, staging, prod
         description: "Environment to deploy to"
         required: true
         type: string
-
       tf_private_modules:
         description: "Use github app auth to allow cloning of private modules"
         default: false
         type: boolean
-
       tf_init_args:
-        description: "Additional arguments to pass to terraform init. Example: -reconfigure or -migrate-state"
+        description: "Additional arguments to pass to init. Example: -reconfigure or -migrate-state"
         required: false
         type: string
         default: ""
-
       mask_aws_account_id:
         description: "Mask or not the aws account id"
         default: true
         type: boolean
-
     secrets:
       AWS_ACCOUNT_ID:
         description: "Required if role_to_assume is set"
@@ -93,10 +84,14 @@ on:
 
 env:
   ROOT_DIR: ${{ github.workspace }}
+
 jobs:
   terraform_plan:
-    name: "${{ inputs.environment }} Plan"
+    name: "${{ inputs.environment }} Plan (${{ inputs.iac_tool }})"
     runs-on: ${{ inputs.runs-on }}
+    env:
+      # Set the command based on the input. 'tofu' for 'opentofu', otherwise 'terraform'
+      IacCommand: ${{ inputs.iac_tool == 'opentofu' && 'tofu' || 'terraform' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -109,15 +104,23 @@ jobs:
         id: set_env_vars
         uses: buricloud/github-workflows/.github/actions/github_tools/set_env_vars@main
 
+      # --- Conditional Tool Setup ---
       - name: Setup Terraform
+        if: inputs.iac_tool == 'terraform'
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ inputs.tf_version }}
 
-      - name: Terraform version
+      - name: Setup OpenTofu
+        if: inputs.iac_tool == 'opentofu'
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: ${{ inputs.tf_version }}
+
+      - name: Version check
         working-directory: ${{ inputs.working_directory }}
         id: version
-        run: terraform --version
+        run: ${{ env.IacCommand }} --version
         continue-on-error: false
 
       - name: Get github read token
@@ -128,58 +131,58 @@ jobs:
           app_private_key: ${{ secrets.GH_READ_APP_PRIVATE_KEY }}
 
       - name: Configure AWS credentials
-        if: ${{ env.AWS_ACCOUNT_ID != '' }}
+        if: ${{ secrets.AWS_ACCOUNT_ID != '' }}
         uses: aws-actions/configure-aws-credentials@v4
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-          ROLE_TO_ASSUME: ${{ env.GITHUB_ORGANISATION_NAME}}-${{ env.GITHUB_REPOSITORY_NAME}}-deployer-role
         with:
-          mask-aws-account-id: ${{ inputs.mask_aws_account_id }} # account id is sensitive but not secret. don't publicly expose it.
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.ROLE_TO_ASSUME }} # a role that can be assumed by GHA actions only
+          mask-aws-account-id: ${{ inputs.mask_aws_account_id }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.GITHUB_ORGANISATION_NAME}}-${{ env.GITHUB_REPOSITORY_NAME}}-deployer-role
           role-duration-seconds: ${{ inputs.aws_session_duration }}
           role-session-name: "plan_${{ env.SESSION_NAME }}"
           aws-region: ${{ inputs.aws_region }}
           unset-current-credentials: true
 
-      - name: Config Terraform plugin cache
+      - name: Config plugin cache
         run: |
           echo 'plugin_cache_dir="$HOME/.terraform.d/plugin-cache"' >~/.terraformrc
-          mkdir --parents ~/.terraform.d/plugin-cache
-      - name: Cache Terraform
+          mkdir -p ~/.terraform.d/plugin-cache
+
+      - name: Cache Providers
         uses: actions/cache@v3
         with:
           path: |
             ~/.terraform.d/plugin-cache
-          key: ${{ runner.os }}-terraform-${{ hashFiles('**/.terraform.lock.hcl') }}
+          key: ${{ runner.os }}-${{ inputs.iac_tool }}-${{ hashFiles('**/.terraform.lock.hcl') }}
           restore-keys: |
-            ${{ runner.os }}-terraform-
+            ${{ runner.os }}-${{ inputs.iac_tool }}-
 
-      - name: Terraform init
+      - name: Init
         working-directory: ${{ inputs.working_directory }}
         id: init
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
         run: |
           if [ "${{ inputs.tf_backend_config_path }}" == "" ]; then
-            terraform init ${{ inputs.tf_init_args }}  \
+            ${{ env.IacCommand }} init ${{ inputs.tf_init_args }} \
               -backend-config="bucket=terraform-state-bucket-${{ inputs.aws_region }}-${{ env.AWS_ACCOUNT_ID }}" \
               -backend-config="dynamodb_table=terraform-lock-table-${{ inputs.aws_region }}-${{ env.AWS_ACCOUNT_ID }}" \
               -backend-config="region=${{ inputs.aws_region }}" \
               -backend-config="key=${{ env.GITHUB_ORGANISATION_NAME}}/${{ env.GITHUB_REPOSITORY_NAME }}/${{ inputs.environment }}/${{ inputs.aws_region }}.tfstate"
           else
-            terraform init -backend-config=${{ inputs.tf_backend_config_path }} ${{ inputs.tf_init_args }}
+            ${{ env.IacCommand }} init -backend-config=${{ inputs.tf_backend_config_path }} ${{ inputs.tf_init_args }}
           fi
         continue-on-error: false
 
-      - name: Terraform plan
+      - name: Plan
         working-directory: ${{ inputs.working_directory }}
         id: plan
         run: |
           if [ "${{ inputs.tf_lock_id }}" != "" ]; then
             # unlock if `tf_lock_id` is provided
-            terraform force-unlock -force ${{ inputs.tf_lock_id }}
+            ${{ env.IacCommand }} force-unlock -force ${{ inputs.tf_lock_id }}
           fi
-          
+
           tf_args="-input=false ${{ inputs.tf_args }}"
           if [ "${{ inputs.tf_variables_path }}" != "" ]; then
             tf_args="$tf_args -var-file=${{ inputs.tf_variables_path }}"
@@ -188,80 +191,12 @@ jobs:
           fi
 
           mkdir -p ./terraform_plans/
-          terraform plan $tf_args -out=./terraform_plans/terraform_plan_${{ inputs.environment }}_${{ inputs.aws_region }}.tfplan
-          
-      - name: Terraform apply
+          ${{ env.IacCommand }} plan $tf_args -out=./terraform_plans/terraform_plan_${{ inputs.environment }}_${{ inputs.aws_region }}.tfplan
+
+      - name: Apply
         id: apply
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         working-directory: ${{ inputs.working_directory }}
         run: |
-          terraform init -backend=false
-          terraform apply ./terraform_plans/terraform_plan_${{ inputs.environment }}_${{ inputs.aws_region }}.tfplan
-        continue-on-error: false
-
-      # - name: "Upload ${{ inputs.working_directory }} to github artifacts"
-      #   uses: actions/upload-artifact@v3
-      #   if: false
-      #   with:
-      #     name: terraform_${{ inputs.environment }}_${{ inputs.aws_region }}
-      #     path: ${{ inputs.working_directory }}
-
-  #       - name: "Echo terraform plan to github step summary"
-  #         if: ${{ github.ref == 'refs/heads/main' }}
-  #         run: |
-  #           TF_PLAN=$(terraform show -json ./terraform_plans/terraform_plan_${{ inputs.environment }}_${{ inputs.aws_region }}.tfplan)
-  #           echo $TF_PLAN >> $GITHUB_STEP_SUMMARY
-
-  terraform_apply:
-    needs: terraform_plan
-    if: false
-    name: "${{ inputs.environment }} Apply"
-    runs-on: ${{ inputs.runs-on }}
-    environment: ${{ inputs.environment }}
-    steps:
-      - name: "set env variables"
-        id: set_env_vars
-        uses: buricloud/github-workflows/.github/actions/github_tools/set_env_vars@main
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: ${{ inputs.tf_version }}
-
-      - name: "Download ${{ inputs.working_directory }} from previous job"
-        uses: actions/download-artifact@v3
-        with:
-          name: terraform_${{ inputs.environment }}_${{ inputs.aws_region }}
-          path: ${{ inputs.working_directory }}
-
-      - name: "list files in ${{ inputs.working_directory }}"
-        run: ls -R
-        working-directory: ${{ inputs.working_directory }}
-
-      - name: Configure AWS credentials
-        if: ${{ env.AWS_ACCOUNT_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
-        env:
-          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-          ROLE_TO_ASSUME: ${{ env.GITHUB_ORGANISATION_NAME}}-${{ env.GITHUB_REPOSITORY_NAME}}-deployer-role
-        with:
-          mask-aws-account-id: ${{ inputs.mask_aws_account_id }} # account id is sensitive but not secret. don't publicly expose it.
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.ROLE_TO_ASSUME }} # a role that can be assumed by GHA actions only
-          role-duration-seconds: ${{ inputs.aws_session_duration }}
-          role-session-name: "apply_${{ env.SESSION_NAME }}"
-          aws-region: ${{ inputs.aws_region }}
-          
-      - name: Print .terraform directory contents
-        run: |
-          ls -R ${{ inputs.working_directory }}/.terraform
-          
-      - name: Set execution permission for provider binary
-        run: chmod +x ${{ inputs.working_directory }}/.terraform/providers/registry.terraform.io/hashicorp/aws/4.67.0/linux_amd64/terraform-provider-aws_v4.67.0_x5
-
-      - name: Terraform apply
-        id: apply
-        working-directory: ${{ inputs.working_directory }}
-        run: |
-          terraform init -backend=false
-          terraform apply ./terraform_plans/terraform_plan_${{ inputs.environment }}_${{ inputs.aws_region }}.tfplan
+          ${{ env.IacCommand }} apply -auto-approve ./terraform_plans/terraform_plan_${{ inputs.environment }}_${{ inputs.aws_region }}.tfplan
         continue-on-error: false
