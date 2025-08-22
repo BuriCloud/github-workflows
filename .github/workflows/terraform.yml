@@ -131,10 +131,10 @@ jobs:
           app_private_key: ${{ secrets.GH_READ_APP_PRIVATE_KEY }}
 
       - name: Configure AWS credentials
-        if: ${{ secrets.AWS_ACCOUNT_ID != '' }}
-        uses: aws-actions/configure-aws-credentials@v4
         env:
           AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+        if: env.AWS_ACCOUNT_ID != ''
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           mask-aws-account-id: ${{ inputs.mask_aws_account_id }}
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.GITHUB_ORGANISATION_NAME}}-${{ env.GITHUB_REPOSITORY_NAME}}-deployer-role
