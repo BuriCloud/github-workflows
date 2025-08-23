@@ -22,6 +22,13 @@ on:
         description: "Extra arguments to pass for plan"
         required: false
         type: string
+      # --- NEW INPUT ADDED HERE ---
+      tf_vars:
+        description: "Multiline string of Terraform variables to set (e.g., 'project_name = \"TCdev\"\\nowner = \"team-a\"')"
+        required: false
+        type: string
+        default: ""
+      # ---------------------------
       tf_backend_config_path:
         description: "Path to the backend config file"
         required: false
@@ -174,10 +181,18 @@ jobs:
           fi
         continue-on-error: false
 
+      # --- PLAN STEP MODIFIED HERE ---
       - name: Plan
         working-directory: ${{ inputs.working_directory }}
         id: plan
         run: |
+          # If tf_vars is not empty, write it to a .auto.tfvars file
+          if [ -n "${{ inputs.tf_vars }}" ]; then
+            echo "Applying additional tf_vars:"
+            echo "${{ inputs.tf_vars }}"
+            echo "${{ inputs.tf_vars }}" > external.auto.tfvars
+          fi
+
           if [ "${{ inputs.tf_lock_id }}" != "" ]; then
             # unlock if `tf_lock_id` is provided
             ${{ env.IacCommand }} force-unlock -force ${{ inputs.tf_lock_id }}
@@ -192,7 +207,8 @@ jobs:
 
           mkdir -p ./terraform_plans/
           ${{ env.IacCommand }} plan $tf_args -out=./terraform_plans/terraform_plan_${{ inputs.environment }}_${{ inputs.aws_region }}.tfplan
-
+      # ---------------------------------
+      
       - name: Apply
         id: apply
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
